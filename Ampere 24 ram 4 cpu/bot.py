@@ -175,8 +175,12 @@ if bot_token != "xxxx" and uid != "xxxx":
 
 # ============================ RETRY LOOP ============================ #
 
-wait_s_for_retry = 1
-total_count = j_count = tc = oc = 0
+# Smart exponential backoff config
+BASE_WAIT = int(os.getenv("BASE_WAIT", "300"))  # Base wait: 5 minutes (300s)
+MAX_WAIT = 3600  # Max wait: 1 hour
+wait_s_for_retry = BASE_WAIT
+retry_429_count = 0
+total_count = j_count = 0
 
 while True:
     for ad in availabilityDomains:
@@ -258,18 +262,13 @@ while True:
 
             # Handle throttling and other errors
             if e.status == 429:
-                oc = 0
-                tc += 1
-                if tc == 2:
-                    wait_s_for_retry += 1
-                    tc = 0
+                retry_429_count += 1
+                # Exponential backoff: 5min -> 10min -> 20min -> 40min -> 60min (cap)
+                wait_s_for_retry = min(BASE_WAIT * (2 ** (retry_429_count - 1)), MAX_WAIT)
             else:
-                tc = 0
-                if wait_s_for_retry > minimum_time_interval:
-                    oc += 1
-                if oc == 2:
-                    wait_s_for_retry -= 1
-                    oc = 0
+                # Out of capacity (500) - reset to base, don't hammer
+                retry_429_count = 0
+                wait_s_for_retry = BASE_WAIT
 
             logging.info(
                 f"{e.status} - {e.code} - {e.message}. Retrying after {wait_s_for_retry}s. "
